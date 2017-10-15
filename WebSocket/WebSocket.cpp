@@ -13,6 +13,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <string.h>
 
 using namespace std;
 
@@ -66,7 +67,7 @@ WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int inp
 string WebSocket::trim(string str) 
 {
 	//printf("TRIM\n");
-	char* whitespace = " \t\r\n";
+	char whitespace[] = " \t\r\n";
 	string::size_type pos = str.find_last_not_of(whitespace);
 	if(pos != string::npos) {
 		str.erase(pos + 1);
@@ -158,7 +159,7 @@ string WebSocket::answerHandshake()
 	//return WS_OPENING_FRAME;
 }
 
-int WebSocket::makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_length, unsigned char* buffer, int buffer_size)
+int WebSocket::makeFrame(int frame_type, unsigned char* msg, int msg_length, unsigned char* buffer, int buffer_size)
 {
 	int pos = 0;
 	int size = msg_length; 

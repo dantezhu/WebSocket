@@ -1,0 +1,36 @@
+<html>
+<head>
+<meta charset='utf-8'></meta>
+<script language="javascript" type="text/javascript">
+var WSKT=new WebSocket("ws://www.beautifulunknown.top:5000");
+WSKT.onopen=wopen;
+WSKT.onclose=wclose;
+WSKT.onmessage=wmessage;
+WSKT.onerror=werror;
+function wopen(evt)
+{
+console.log("connection is established");
+}
+function wclose(evt)
+{
+console.log("connection is closed");
+}
+function wmessage(evt)
+{
+console.log("recv_server_data:"+evt.data);
+}
+function werror(evt)
+{
+console.log("error occurred");
+}
+function wsend()
+{
+	WSKT.send("hello, every thing need condition");
+}
+setInterval(wsend,1000);
+
+</script>
+</head>
+<body>
+</body>
+</html>
