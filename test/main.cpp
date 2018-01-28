@@ -109,9 +109,9 @@ int main(int argc,char*argv[])
 			}
 			else
 			{
-				char b[2048];
-				int l=0;
-				int r=wskt.getFrame((unsigned char*)buf,len,(unsigned char*)b,sizeof(b),&l);
+                int out_length;
+                int out_offset;
+				int r=wskt.getFrame((unsigned char*)buf,len,&out_offset, &out_length);
 				if(r==INCOMPLETE_FRAME)
 				{
 					printf("incomplete data\n");
@@ -119,20 +119,22 @@ int main(int argc,char*argv[])
 				}
 				else if(r==ERROR_FRAME)
 				{
-					printf("recv error frame data[%x]:%s\n",r,b);
+					printf("recv error frame data[%x]\n",r);
 					continue;
 				}
 
-				printf("server recv normal data[%x]:%s\n",r,b);
+				printf("server recv normal data[%x]:, out_offset: %d, out_length: %d\n",r, out_offset, out_length);
 
-				int rl=wskt.makeFrame(TEXT_FRAME,(unsigned char*)b,l,(unsigned char*)buf,sizeof(buf));
+                char wrapper_send_buf[2048];
+
+				int rl=wskt.makeFrame(TEXT_FRAME,(unsigned char*)(buf + out_offset), out_length,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
 				
 				//send back and make it an echo server
 				int sl=0;
 				while(sl<rl)
 				{
 					int s;
-					if((s=::send(new_fd,buf+sl,rl-sl,MSG_NOSIGNAL))==-1)
+					if((s=::send(new_fd,wrapper_send_buf+sl,rl-sl,MSG_NOSIGNAL))==-1)
 					{
 						printf("send error[%d]%s\n",errno,strerror(errno));
 						if(errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR)
@@ -144,6 +146,10 @@ int main(int argc,char*argv[])
 					}
 					sl+=s;
 				}
+
+                // buf 减掉，并偏移
+                memmove(buf, buf+out_offset, out_length);
+                len -= (out_offset + out_length);
 			}
 		}
 

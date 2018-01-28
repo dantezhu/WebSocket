@@ -193,7 +193,16 @@ int WebSocket::makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int 
 	return (size+pos);
 }
 
-WebSocketFrameType WebSocket::getFrame(unsigned char* in_buffer, int in_length, unsigned char* out_buffer, int out_size, int* out_length)
+WebSocketFrameType WebSocket::checkFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length) {
+    return _unpackFrame(in_buffer, in_length, out_offset, out_length, true);
+}
+
+WebSocketFrameType WebSocket::getFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length) {
+    return _unpackFrame(in_buffer, in_length, out_offset, out_length, false);
+}
+
+// 为了减少内存copy，当需要unmask的时候，原数据会被修改
+WebSocketFrameType WebSocket::_unpackFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length, bool check)
 {
 	//printf("getTextFrame()\n");
 	if(in_length < 3) return INCOMPLETE_FRAME;
@@ -232,23 +241,18 @@ WebSocketFrameType WebSocket::getFrame(unsigned char* in_buffer, int in_length, 
 		//printf("MASK: %08x\n", mask);
 		pos += 4;
 
-		// unmask data:
-		unsigned char* c = in_buffer+pos;
-		for(int i=0; i<payload_length; i++) {
-			c[i] = c[i] ^ ((unsigned char*)(&mask))[i%4];
-		}
+        if (!check) {
+            // unmask data:
+            unsigned char* c = in_buffer+pos;
+            for(int i=0; i<payload_length; i++) {
+                c[i] = c[i] ^ ((unsigned char*)(&mask))[i%4];
+            }
+        }
 	}
 	
-	if(payload_length > out_size) {
-		//TODO: if output buffer is too small -- ERROR or resize(free and allocate bigger one) the buffer ?
-	}
-
-	memcpy((void*)out_buffer, (void*)(in_buffer+pos), payload_length);
-	out_buffer[payload_length] = 0;
-	*out_length = payload_length+1;
+	*out_length = payload_length;
+    *out_offset = pos;
 	
-	//printf("TEXT: %s\n", out_buffer);
-
 	if(msg_opcode == 0x0) return (msg_fin)?TEXT_FRAME:INCOMPLETE_TEXT_FRAME; // continuation frame ?
 	if(msg_opcode == 0x1) return (msg_fin)?TEXT_FRAME:INCOMPLETE_TEXT_FRAME;
 	if(msg_opcode == 0x2) return (msg_fin)?BINARY_FRAME:INCOMPLETE_BINARY_FRAME;

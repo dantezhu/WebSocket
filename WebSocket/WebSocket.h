@@ -57,10 +57,16 @@ class WebSocket
 	string answerHandshake();
 
 	int makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_len, unsigned char* buffer, int buffer_len);
-	WebSocketFrameType getFrame(unsigned char* in_buffer, int in_length, unsigned char* out_buffer, int out_size, int* out_length);
+	WebSocketFrameType checkFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length);
+	WebSocketFrameType getFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length);
 
 	string trim(string str);
 	vector<string> explode(string theString, string theDelimiter, bool theIncludeEmptyStrings = false );
+
+private:
+    // out_offset: 从 in_buffer 的起始偏移量
+    // out_length: 从 out_offset开始的长度。所以如果是计算in_buffer一共要截取的长度，应该是 out_offset + out_length
+    WebSocketFrameType _unpackFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length, bool check);
 };
 
 #endif	/* WEBSOCKET_H */
