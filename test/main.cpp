@@ -119,15 +119,18 @@ int main(int argc,char*argv[])
 				}
 				else if(r==ERROR_FRAME)
 				{
-					printf("recv error frame data[%x]\n",r);
-					continue;
+                    // 当client.py调用close的时候，会收到这个报错
+                    printf("recv error frame data[%x]\n",r);
+                    close(new_fd);
+                    new_fd = -1;
+                    break;
 				}
 
 				printf("server recv normal data[%x]:, out_offset: %d, out_length: %d\n",r, out_offset, out_length);
 
                 char wrapper_send_buf[2048];
 
-				int rl=wskt.makeFrame(TEXT_FRAME,(unsigned char*)(buf + out_offset), out_length,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
+				int rl=wskt.makeFrame(BINARY_FRAME,(unsigned char*)(buf + out_offset), out_length,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
 				
 				//send back and make it an echo server
 				int sl=0;
