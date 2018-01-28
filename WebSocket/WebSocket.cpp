@@ -159,7 +159,7 @@ string WebSocket::answerHandshake()
 	//return WS_OPENING_FRAME;
 }
 
-int WebSocket::makeFrame(int frame_type, unsigned char* msg, int msg_length, unsigned char* buffer, int buffer_size)
+int WebSocket::makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_length, unsigned char* buffer, int buffer_size)
 {
 	int pos = 0;
 	int size = msg_length; 
