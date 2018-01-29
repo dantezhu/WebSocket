@@ -61,6 +61,7 @@ int main(int argc,char*argv[])
 		char buf[2048];
 		int len=0;
 		bool hc=false;
+        struct WebSocketInfo wskt_info;
 		while(true)
 		{
 			int s=::recv(new_fd,buf,sizeof(buf)-len,0);
@@ -84,10 +85,12 @@ int main(int argc,char*argv[])
 			if(!hc)
 			{
 				printf("recv_handshake_data:%s\n",buf);
-				int r=wskt.parseHandshake((unsigned char*)buf,len);
+                int output_len=0;
+				int r=WebSocket::parseHandshake((unsigned char*)buf,len, output_len, wskt_info);
 				if(r==OPENING_FRAME)
 				{
-					std::string re=wskt.answerHandshake();
+                    printf("handshake, input_len: %d, output_len: %d\n", len, output_len);
+					std::string re=WebSocket::answerHandshake(wskt_info);
 					int sl=0;
 					while(sl<re.size())
 					{
@@ -105,13 +108,18 @@ int main(int argc,char*argv[])
 						sl+=s;
 					}
 					hc=true;
+
+                    // buf 减掉，并偏移
+                    // buf 减掉，并偏移
+                    memmove(buf, buf+output_len, len - output_len);
+                    len -= output_len;
 				}
 			}
 			else
 			{
-				char b[2048];
-				int l=0;
-				int r=wskt.getFrame((unsigned char*)buf,len,(unsigned char*)b,sizeof(b),&l);
+                int output_len;
+                int output_offset;
+				int r=WebSocket::getFrame((unsigned char*)buf,len, output_offset, output_len);
 				if(r==INCOMPLETE_FRAME)
 				{
 					printf("incomplete data\n");
@@ -119,20 +127,25 @@ int main(int argc,char*argv[])
 				}
 				else if(r==ERROR_FRAME)
 				{
-					printf("recv error frame data[%x]:%s\n",r,b);
-					continue;
+                    // 当client.py调用close的时候，会收到这个报错
+                    printf("recv error frame data[%x]\n",r);
+                    close(new_fd);
+                    new_fd = -1;
+                    break;
 				}
 
-				printf("server recv normal data[%x]:%s\n",r,b);
+				printf("server recv normal data[%x]:, input_len: %d, output_offset: %d, output_len: %d\n",r, len, output_offset, output_len);
 
-				int rl=wskt.makeFrame(TEXT_FRAME,(unsigned char*)b,l,(unsigned char*)buf,sizeof(buf));
+                char wrapper_send_buf[2048];
+
+				int rl=WebSocket::makeFrame(BINARY_FRAME,(unsigned char*)(buf + output_offset), output_len,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
 				
 				//send back and make it an echo server
 				int sl=0;
 				while(sl<rl)
 				{
 					int s;
-					if((s=::send(new_fd,buf+sl,rl-sl,MSG_NOSIGNAL))==-1)
+					if((s=::send(new_fd,wrapper_send_buf+sl,rl-sl,MSG_NOSIGNAL))==-1)
 					{
 						printf("send error[%d]%s\n",errno,strerror(errno));
 						if(errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR)
@@ -144,6 +157,11 @@ int main(int argc,char*argv[])
 					}
 					sl+=s;
 				}
+
+                int total_len = output_offset + output_len;
+                // buf 减掉，并偏移
+                memmove(buf, buf+total_len, len - total_len);
+                len -= total_len;
 			}
 		}
 
