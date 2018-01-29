@@ -89,6 +89,7 @@ int main(int argc,char*argv[])
 				int r=WebSocket::parseHandshake((unsigned char*)buf,len, output_len, wskt_info);
 				if(r==OPENING_FRAME)
 				{
+                    printf("handshake, input_len: %d, output_len: %d\n", len, output_len);
 					std::string re=WebSocket::answerHandshake(wskt_info);
 					int sl=0;
 					while(sl<re.size())
@@ -107,13 +108,18 @@ int main(int argc,char*argv[])
 						sl+=s;
 					}
 					hc=true;
+
+                    // buf 减掉，并偏移
+                    // buf 减掉，并偏移
+                    memmove(buf, buf+output_len, len - output_len);
+                    len -= output_len;
 				}
 			}
 			else
 			{
-                int out_length;
-                int out_offset;
-				int r=WebSocket::getFrame((unsigned char*)buf,len, out_offset, out_length);
+                int output_len;
+                int output_offset;
+				int r=WebSocket::getFrame((unsigned char*)buf,len, output_offset, output_len);
 				if(r==INCOMPLETE_FRAME)
 				{
 					printf("incomplete data\n");
@@ -128,11 +134,11 @@ int main(int argc,char*argv[])
                     break;
 				}
 
-				printf("server recv normal data[%x]:, out_offset: %d, out_length: %d\n",r, out_offset, out_length);
+				printf("server recv normal data[%x]:, input_len: %d, output_offset: %d, output_len: %d\n",r, len, output_offset, output_len);
 
                 char wrapper_send_buf[2048];
 
-				int rl=WebSocket::makeFrame(BINARY_FRAME,(unsigned char*)(buf + out_offset), out_length,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
+				int rl=WebSocket::makeFrame(BINARY_FRAME,(unsigned char*)(buf + output_offset), output_len,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
 				
 				//send back and make it an echo server
 				int sl=0;
@@ -152,9 +158,10 @@ int main(int argc,char*argv[])
 					sl+=s;
 				}
 
+                int total_len = output_offset + output_len;
                 // buf 减掉，并偏移
-                memmove(buf, buf+out_offset, out_length);
-                len -= (out_offset + out_length);
+                memmove(buf, buf+total_len, len - total_len);
+                len -= total_len;
 			}
 		}
 
