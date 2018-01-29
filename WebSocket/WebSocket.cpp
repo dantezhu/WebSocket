@@ -17,16 +17,33 @@
 
 using namespace std;
 
-WebSocket::WebSocket() {
-
-}
-
-WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int input_len)
+WebSocketFrameType WebSocket::checkHandshake(unsigned char* input_frame, int input_len, int& output_len)
 {
 	// 1. copy char*/len into string
 	// 2. try to parse headers until \r\n occurs
+    char end_str[] = "\r\n\r\n";
 	string headers((char*)input_frame, input_len); 
-	int header_end = headers.find("\r\n\r\n");
+	int header_end = headers.find(end_str);
+
+	if(header_end == string::npos) { // end-of-headers not found - do not parse
+		return INCOMPLETE_FRAME;
+	}
+
+	//return FrameType::OPENING_FRAME;
+	printf("HANDSHAKE-PARSED\n");
+
+    output_len = header_end + strlen(end_str);
+
+	return OPENING_FRAME;
+}
+
+WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int input_len, int& output_len, WebSocketInfo& wskt_info)
+{
+	// 1. copy char*/len into string
+	// 2. try to parse headers until \r\n occurs
+    char end_str[] = "\r\n\r\n";
+	string headers((char*)input_frame, input_len); 
+	int header_end = headers.find(end_str);
 
 	if(header_end == string::npos) { // end-of-headers not found - do not parse
 		return INCOMPLETE_FRAME;
@@ -41,7 +58,7 @@ WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int inp
 		if(header.find("GET") == 0) {
 			vector<string> get_tokens = explode(header, string(" "));
 			if(get_tokens.size() >= 2) {
-				this->resource = get_tokens[1];
+				wskt_info.resource = get_tokens[1];
 			}
 		}
 		else {
@@ -50,10 +67,10 @@ WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int inp
 				string header_key(header, 0, pos);
 				string header_value(header, pos+1);
 				header_value = trim(header_value);
-				if(header_key == "Host") this->host = header_value;
-				else if(header_key == "Origin") this->origin = header_value;
-				else if(header_key == "Sec-WebSocket-Key") this->key = header_value;
-				else if(header_key == "Sec-WebSocket-Protocol") this->protocol = header_value;
+				if(header_key == "Host") wskt_info.host = header_value;
+				else if(header_key == "Origin") wskt_info.origin = header_value;
+				else if(header_key == "Sec-WebSocket-Key") wskt_info.key = header_value;
+				else if(header_key == "Sec-WebSocket-Protocol") wskt_info.protocol = header_value;
 			}
 		}
 	}
@@ -63,7 +80,190 @@ WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int inp
 
 	//return FrameType::OPENING_FRAME;
 	printf("HANDSHAKE-PARSED\n");
+
+    output_len = header_end + strlen(end_str);
+
 	return OPENING_FRAME;
+}
+
+string WebSocket::answerHandshake(const WebSocketInfo& wskt_info) 
+{
+    unsigned char digest[20]; // 160 bit sha1 digest
+
+	string answer;
+	answer += "HTTP/1.1 101 Switching Protocols\r\n";
+	answer += "Upgrade: WebSocket\r\n";
+	answer += "Connection: Upgrade\r\n";
+	if(wskt_info.key.length() > 0) {
+		string accept_key;
+		accept_key += wskt_info.key;
+		accept_key += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"; //RFC6544_MAGIC_KEY
+
+		//printf("INTERMEDIATE_KEY:(%s)\n", accept_key.data());
+
+		SHA1 sha;
+		sha.Input(accept_key.data(), accept_key.size());
+		sha.Result((unsigned*)digest);
+		
+		//printf("DIGEST:"); for(int i=0; i<20; i++) printf("%02x ",digest[i]); printf("\n");
+
+		//little endian to big endian
+		for(int i=0; i<20; i+=4) {
+			unsigned char c;
+
+			c = digest[i];
+			digest[i] = digest[i+3];
+			digest[i+3] = c;
+
+			c = digest[i+1];
+			digest[i+1] = digest[i+2];
+			digest[i+2] = c;
+		}
+
+		//printf("DIGEST:"); for(int i=0; i<20; i++) printf("%02x ",digest[i]); printf("\n");
+
+		accept_key = base64_encode((const unsigned char *)digest, 20); //160bit = 20 bytes/chars
+
+		answer += "Sec-WebSocket-Accept: "+(accept_key)+"\r\n";
+	}
+	if(wskt_info.protocol.length() > 0) {
+		answer += "Sec-WebSocket-Protocol: "+(wskt_info.protocol)+"\r\n";
+	}
+	answer += "\r\n";
+	return answer;
+
+	//return WS_OPENING_FRAME;
+}
+
+int WebSocket::calcMakeFrameSize(int msg_len) {
+    int pos = 0;
+    int size = msg_len; 
+    pos++; // text frame
+
+    if(size <= 125) {
+        pos++;
+    }
+    else if(size <= 65535) {
+        pos += 3;
+    }
+    else { // >2^16-1 (65535)
+        pos ++; //64 bit length follows
+        
+        // write 8 bytes length (significant first)
+        
+        // since msg_len is int it can be no longer than 4 bytes = 2^32-1
+        // padd zeroes for the first 4 bytes
+        for(int i=3; i>=0; i--) {
+            pos ++;
+        }
+        // write the actual 32bit msg_len in the next 4 bytes
+        for(int i=3; i>=0; i--) {
+            pos ++;
+        }
+    }
+    return (size+pos);
+}
+int WebSocket::makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_len, unsigned char* buffer, int buffer_size)
+{
+	int pos = 0;
+	int size = msg_len; 
+	buffer[pos++] = (unsigned char)frame_type; // text frame
+
+	if(size <= 125) {
+		buffer[pos++] = size;
+	}
+	else if(size <= 65535) {
+		buffer[pos++] = 126; //16 bit length follows
+		
+		buffer[pos++] = (size >> 8) & 0xFF; // leftmost first
+		buffer[pos++] = size & 0xFF;
+	}
+	else { // >2^16-1 (65535)
+		buffer[pos++] = 127; //64 bit length follows
+		
+		// write 8 bytes length (significant first)
+		
+		// since msg_len is int it can be no longer than 4 bytes = 2^32-1
+		// padd zeroes for the first 4 bytes
+		for(int i=3; i>=0; i--) {
+			buffer[pos++] = 0;
+		}
+		// write the actual 32bit msg_len in the next 4 bytes
+		for(int i=3; i>=0; i--) {
+			buffer[pos++] = ((size >> 8*i) & 0xFF);
+		}
+	}
+	memcpy((void*)(buffer+pos), msg, size);
+	return (size+pos);
+}
+
+WebSocketFrameType WebSocket::checkFrame(unsigned char* input_buf, int input_len, int& output_offset, int& output_len) {
+    return _unpackFrame(input_buf, input_len, output_offset, output_len, true);
+}
+
+WebSocketFrameType WebSocket::getFrame(unsigned char* input_buf, int input_len, int& output_offset, int& output_len) {
+    return _unpackFrame(input_buf, input_len, output_offset, output_len, false);
+}
+
+// 为了减少内存copy，当需要unmask的时候，原数据会被修改
+WebSocketFrameType WebSocket::_unpackFrame(unsigned char* input_buf, int input_len, int& output_offset, int& output_len, bool check)
+{
+	//printf("getTextFrame()\n");
+	if(input_len < 3) return INCOMPLETE_FRAME;
+
+	unsigned char msg_opcode = input_buf[0] & 0x0F;
+	unsigned char msg_fin = (input_buf[0] >> 7) & 0x01;
+	unsigned char msg_masked = (input_buf[1] >> 7) & 0x01;
+
+	// *** message decoding 
+
+	int payload_length = 0;
+	int pos = 2;
+	int length_field = input_buf[1] & (~0x80);
+	unsigned int mask = 0;
+
+	//printf("IN:"); for(int i=0; i<20; i++) printf("%02x ",buffer[i]); printf("\n");
+
+	if(length_field <= 125) {
+		payload_length = length_field;
+	}
+	else if(length_field == 126) { //msglen is 16bit!
+		payload_length = input_buf[2] + (input_buf[3]<<8);
+		pos += 2;
+	}
+	else if(length_field == 127) { //msglen is 64bit!
+		payload_length = input_buf[2] + (input_buf[3]<<8); 
+		pos += 8;
+	}
+	//printf("PAYLOAD_LEN: %08x\n", payload_length);
+	if(input_len < payload_length+pos) {
+		return INCOMPLETE_FRAME;
+	}
+
+	if(msg_masked) {
+		mask = *((unsigned int*)(input_buf+pos));
+		//printf("MASK: %08x\n", mask);
+		pos += 4;
+
+        if (!check) {
+            // unmask data:
+            unsigned char* c = input_buf+pos;
+            for(int i=0; i<payload_length; i++) {
+                c[i] = c[i] ^ ((unsigned char*)(&mask))[i%4];
+            }
+        }
+	}
+	
+    output_offset = pos;
+	output_len = payload_length;
+	
+	if(msg_opcode == 0x0) return (msg_fin)?TEXT_FRAME:INCOMPLETE_TEXT_FRAME; // continuation frame ?
+	if(msg_opcode == 0x1) return (msg_fin)?TEXT_FRAME:INCOMPLETE_TEXT_FRAME;
+	if(msg_opcode == 0x2) return (msg_fin)?BINARY_FRAME:INCOMPLETE_BINARY_FRAME;
+	if(msg_opcode == 0x9) return PING_FRAME;
+	if(msg_opcode == 0xA) return PONG_FRAME;
+
+	return ERROR_FRAME;
 }
 
 string WebSocket::trim(string str) 
@@ -112,182 +312,3 @@ vector<string> WebSocket::explode(
 	return theStringVector;
 }
 
-string WebSocket::answerHandshake() 
-{
-    unsigned char digest[20]; // 160 bit sha1 digest
-
-	string answer;
-	answer += "HTTP/1.1 101 Switching Protocols\r\n";
-	answer += "Upgrade: WebSocket\r\n";
-	answer += "Connection: Upgrade\r\n";
-	if(this->key.length() > 0) {
-		string accept_key;
-		accept_key += this->key;
-		accept_key += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"; //RFC6544_MAGIC_KEY
-
-		//printf("INTERMEDIATE_KEY:(%s)\n", accept_key.data());
-
-		SHA1 sha;
-		sha.Input(accept_key.data(), accept_key.size());
-		sha.Result((unsigned*)digest);
-		
-		//printf("DIGEST:"); for(int i=0; i<20; i++) printf("%02x ",digest[i]); printf("\n");
-
-		//little endian to big endian
-		for(int i=0; i<20; i+=4) {
-			unsigned char c;
-
-			c = digest[i];
-			digest[i] = digest[i+3];
-			digest[i+3] = c;
-
-			c = digest[i+1];
-			digest[i+1] = digest[i+2];
-			digest[i+2] = c;
-		}
-
-		//printf("DIGEST:"); for(int i=0; i<20; i++) printf("%02x ",digest[i]); printf("\n");
-
-		accept_key = base64_encode((const unsigned char *)digest, 20); //160bit = 20 bytes/chars
-
-		answer += "Sec-WebSocket-Accept: "+(accept_key)+"\r\n";
-	}
-	if(this->protocol.length() > 0) {
-		answer += "Sec-WebSocket-Protocol: "+(this->protocol)+"\r\n";
-	}
-	answer += "\r\n";
-	return answer;
-
-	//return WS_OPENING_FRAME;
-}
-
-int WebSocket::calcMakeFrameSize(int msg_length) {
-    int pos = 0;
-    int size = msg_length; 
-    pos++; // text frame
-
-    if(size <= 125) {
-        pos++;
-    }
-    else if(size <= 65535) {
-        pos += 3;
-    }
-    else { // >2^16-1 (65535)
-        pos ++; //64 bit length follows
-        
-        // write 8 bytes length (significant first)
-        
-        // since msg_length is int it can be no longer than 4 bytes = 2^32-1
-        // padd zeroes for the first 4 bytes
-        for(int i=3; i>=0; i--) {
-            pos ++;
-        }
-        // write the actual 32bit msg_length in the next 4 bytes
-        for(int i=3; i>=0; i--) {
-            pos ++;
-        }
-    }
-    return (size+pos);
-}
-int WebSocket::makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_length, unsigned char* buffer, int buffer_size)
-{
-	int pos = 0;
-	int size = msg_length; 
-	buffer[pos++] = (unsigned char)frame_type; // text frame
-
-	if(size <= 125) {
-		buffer[pos++] = size;
-	}
-	else if(size <= 65535) {
-		buffer[pos++] = 126; //16 bit length follows
-		
-		buffer[pos++] = (size >> 8) & 0xFF; // leftmost first
-		buffer[pos++] = size & 0xFF;
-	}
-	else { // >2^16-1 (65535)
-		buffer[pos++] = 127; //64 bit length follows
-		
-		// write 8 bytes length (significant first)
-		
-		// since msg_length is int it can be no longer than 4 bytes = 2^32-1
-		// padd zeroes for the first 4 bytes
-		for(int i=3; i>=0; i--) {
-			buffer[pos++] = 0;
-		}
-		// write the actual 32bit msg_length in the next 4 bytes
-		for(int i=3; i>=0; i--) {
-			buffer[pos++] = ((size >> 8*i) & 0xFF);
-		}
-	}
-	memcpy((void*)(buffer+pos), msg, size);
-	return (size+pos);
-}
-
-WebSocketFrameType WebSocket::checkFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length) {
-    return _unpackFrame(in_buffer, in_length, out_offset, out_length, true);
-}
-
-WebSocketFrameType WebSocket::getFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length) {
-    return _unpackFrame(in_buffer, in_length, out_offset, out_length, false);
-}
-
-// 为了减少内存copy，当需要unmask的时候，原数据会被修改
-WebSocketFrameType WebSocket::_unpackFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length, bool check)
-{
-	//printf("getTextFrame()\n");
-	if(in_length < 3) return INCOMPLETE_FRAME;
-
-	unsigned char msg_opcode = in_buffer[0] & 0x0F;
-	unsigned char msg_fin = (in_buffer[0] >> 7) & 0x01;
-	unsigned char msg_masked = (in_buffer[1] >> 7) & 0x01;
-
-	// *** message decoding 
-
-	int payload_length = 0;
-	int pos = 2;
-	int length_field = in_buffer[1] & (~0x80);
-	unsigned int mask = 0;
-
-	//printf("IN:"); for(int i=0; i<20; i++) printf("%02x ",buffer[i]); printf("\n");
-
-	if(length_field <= 125) {
-		payload_length = length_field;
-	}
-	else if(length_field == 126) { //msglen is 16bit!
-		payload_length = in_buffer[2] + (in_buffer[3]<<8);
-		pos += 2;
-	}
-	else if(length_field == 127) { //msglen is 64bit!
-		payload_length = in_buffer[2] + (in_buffer[3]<<8); 
-		pos += 8;
-	}
-	//printf("PAYLOAD_LEN: %08x\n", payload_length);
-	if(in_length < payload_length+pos) {
-		return INCOMPLETE_FRAME;
-	}
-
-	if(msg_masked) {
-		mask = *((unsigned int*)(in_buffer+pos));
-		//printf("MASK: %08x\n", mask);
-		pos += 4;
-
-        if (!check) {
-            // unmask data:
-            unsigned char* c = in_buffer+pos;
-            for(int i=0; i<payload_length; i++) {
-                c[i] = c[i] ^ ((unsigned char*)(&mask))[i%4];
-            }
-        }
-	}
-	
-	*out_length = payload_length;
-    *out_offset = pos;
-	
-	if(msg_opcode == 0x0) return (msg_fin)?TEXT_FRAME:INCOMPLETE_TEXT_FRAME; // continuation frame ?
-	if(msg_opcode == 0x1) return (msg_fin)?TEXT_FRAME:INCOMPLETE_TEXT_FRAME;
-	if(msg_opcode == 0x2) return (msg_fin)?BINARY_FRAME:INCOMPLETE_BINARY_FRAME;
-	if(msg_opcode == 0x9) return PING_FRAME;
-	if(msg_opcode == 0xA) return PONG_FRAME;
-
-	return ERROR_FRAME;
-}

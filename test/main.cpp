@@ -61,6 +61,7 @@ int main(int argc,char*argv[])
 		char buf[2048];
 		int len=0;
 		bool hc=false;
+        struct WebSocketInfo wskt_info;
 		while(true)
 		{
 			int s=::recv(new_fd,buf,sizeof(buf)-len,0);
@@ -84,10 +85,11 @@ int main(int argc,char*argv[])
 			if(!hc)
 			{
 				printf("recv_handshake_data:%s\n",buf);
-				int r=wskt.parseHandshake((unsigned char*)buf,len);
+                int output_len=0;
+				int r=WebSocket::parseHandshake((unsigned char*)buf,len, output_len, wskt_info);
 				if(r==OPENING_FRAME)
 				{
-					std::string re=wskt.answerHandshake();
+					std::string re=WebSocket::answerHandshake(wskt_info);
 					int sl=0;
 					while(sl<re.size())
 					{
@@ -111,7 +113,7 @@ int main(int argc,char*argv[])
 			{
                 int out_length;
                 int out_offset;
-				int r=wskt.getFrame((unsigned char*)buf,len,&out_offset, &out_length);
+				int r=WebSocket::getFrame((unsigned char*)buf,len, out_offset, out_length);
 				if(r==INCOMPLETE_FRAME)
 				{
 					printf("incomplete data\n");
@@ -130,7 +132,7 @@ int main(int argc,char*argv[])
 
                 char wrapper_send_buf[2048];
 
-				int rl=wskt.makeFrame(BINARY_FRAME,(unsigned char*)(buf + out_offset), out_length,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
+				int rl=WebSocket::makeFrame(BINARY_FRAME,(unsigned char*)(buf + out_offset), out_length,(unsigned char*)wrapper_send_buf,sizeof(wrapper_send_buf));
 				
 				//send back and make it an echo server
 				int sl=0;
