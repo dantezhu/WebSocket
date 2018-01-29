@@ -159,6 +159,34 @@ string WebSocket::answerHandshake()
 	//return WS_OPENING_FRAME;
 }
 
+int WebSocket::calcMakeFrameSize(int msg_length) {
+    int pos = 0;
+    int size = msg_length; 
+    pos++; // text frame
+
+    if(size <= 125) {
+        pos++;
+    }
+    else if(size <= 65535) {
+        pos += 3;
+    }
+    else { // >2^16-1 (65535)
+        pos ++; //64 bit length follows
+        
+        // write 8 bytes length (significant first)
+        
+        // since msg_length is int it can be no longer than 4 bytes = 2^32-1
+        // padd zeroes for the first 4 bytes
+        for(int i=3; i>=0; i--) {
+            pos ++;
+        }
+        // write the actual 32bit msg_length in the next 4 bytes
+        for(int i=3; i>=0; i--) {
+            pos ++;
+        }
+    }
+    return (size+pos);
+}
 int WebSocket::makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_length, unsigned char* buffer, int buffer_size)
 {
 	int pos = 0;

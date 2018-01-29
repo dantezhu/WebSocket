@@ -56,6 +56,8 @@ class WebSocket
 	WebSocketFrameType parseHandshake(unsigned char* input_frame, int input_len);
 	string answerHandshake();
 
+    // 计算创建frame需要的空间
+	int calcMakeFrameSize(int msg_length);
 	int makeFrame(WebSocketFrameType frame_type, unsigned char* msg, int msg_len, unsigned char* buffer, int buffer_len);
 	WebSocketFrameType checkFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length);
 	WebSocketFrameType getFrame(unsigned char* in_buffer, int in_length, int* out_offset, int* out_length);
