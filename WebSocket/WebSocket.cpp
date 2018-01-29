@@ -33,6 +33,8 @@ WebSocketFrameType WebSocket::parseHandshake(unsigned char* input_frame, int inp
 	}
 
 	headers.resize(header_end); // trim off any data we don't need after the headers
+    // 这里打印出来会差4，就是差的\r\n\r\n
+    // printf("header_end: %d, input_len: %d\n", header_end, input_len);
 	vector<string> headers_rows = explode(headers, string("\r\n"));
 	for(int i=0; i<headers_rows.size(); i++) {
 		string& header = headers_rows[i];

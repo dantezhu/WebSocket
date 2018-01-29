@@ -49,6 +49,7 @@ class WebSocket
 	WebSocket();
 
 	/**
+     * 这里并没有返回有效解析长度，确实对于握手而言，我可以把buf直接清空，不会有什么影响
 	 * @param input_frame .in. pointer to input frame
 	 * @param input_len .in. length of input frame
 	 * @return [WS_INCOMPLETE_FRAME, WS_ERROR_FRAME, WS_OPENING_FRAME]
